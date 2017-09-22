@@ -1,8 +1,22 @@
 import pyglet
+pyglet.options['audio'] = ('openal', 'pulse', 'directsound', 'silent')
+import pyglet.media
 from pyglet.window import key
 from pyglet.window import mouse
 from pyglet.gl import *
 from enum import Enum
+import librosa
+
+class track:
+    def __init__(self):
+        audio_path = librosa.util.example_audio_file()
+        self.y, self.sr = librosa.load(audio_path)
+        self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr)
+        self.sound = pyglet.media.load(audio_path)
+        print('loaded ' + audio_path + ' tempo: ' + str(self.tempo) + ' #beats: ' + str(len(self.beats)))
+
+    def play(self):
+        self.sound.play()
 
 class menu:
     def draw(self):
@@ -14,6 +28,7 @@ class menu:
 
     def start_game(self):
         print('starting game!')
+        self.g.track.play()
 
     def show_controls(self):
         print('showing controls!')
@@ -93,6 +108,7 @@ class game:
         self.fps_display = pyglet.clock.ClockDisplay()
         self.state = game.State.menu
         self.menu = menu(self)
+        self.track = track()
         @self.window.event
         def on_draw():
             self.on_draw()
@@ -126,7 +142,10 @@ class game:
     def run(self):
         pyglet.app.run()
 
-if __name__ == "__main__":
+def main():
     g = game()
     g.run()
+
+if __name__ == "__main__":
+    main()
 
