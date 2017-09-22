@@ -28,7 +28,7 @@ class menu:
 
     def start_game(self):
         print('starting game!')
-        self.g.track.play()
+        self.g.start()
 
     def show_controls(self):
         print('showing controls!')
@@ -111,13 +111,13 @@ class game:
         self.track = track()
         @self.window.event
         def on_draw():
-            self.on_draw()
+            return self.on_draw()
         @self.window.event
         def on_key_press(s,m):
-            self.on_event(s,m)
+            return self.on_event(s,m)
         @self.window.event
         def on_mouse_press(x,y,button,modifiers):
-            self.on_mouse_press(x,y,button,modifiers)
+            return self.on_mouse_press(x,y,button,modifiers)
 
     def update(self, dt):
         pass
@@ -135,12 +135,19 @@ class game:
         print('key pressed: ' + str(symbol))
         if self.state == game.State.menu:
             self.menu.handle_keypress(symbol)
+        if symbol == pyglet.window.key.ESCAPE:
+            self.state = game.State.menu
+            return pyglet.event.EVENT_HANDLED
 
     def on_mouse_press(self,x,y,button,modifiers):
         pass
 
     def run(self):
         pyglet.app.run()
+
+    def start(self):
+        self.state = game.State.ingame
+        self.track.play()
 
 def main():
     g = game()
