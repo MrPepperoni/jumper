@@ -6,23 +6,72 @@ from pyglet.window import mouse
 from pyglet.gl import *
 from enum import Enum
 import librosa
+import librosa.display
 import random
+import matplotlib.pyplot as plt
+import numpy as np
 
 class track:
+    def plot(self):
+        plt.figure(figsize=(8, 8))
+        plt.plot(self.beats, 'ro', label='Onset strength')
+        # plt.plot([x[1] for x in self.tempogram], label='tempogram')
+        # plt.xticks([])
+        # plt.legend(frameon=True)
+        # plt.axis('tight')
+        # librosa.display.specshow(self.tempogram, sr=self.sr, hop_length=self.hop_length, x_axis='time', y_axis='tempo')
+        plt.show()
+        if True:
+            return
+        plt.subplot(4, 1, 2)
+        # We'll truncate the display to a narrower range of tempi
+        librosa.display.specshow(self.tempogram, sr=self.sr, hop_length=self.hop_length,
+                                 x_axis='time', y_axis='tempo')
+        plt.axhline(self.tempo, color='w', linestyle='--', alpha=1,
+                    label='Estimated tempo={:g}'.format(self.tempo))
+        plt.legend(frameon=True, framealpha=0.75)
+        plt.subplot(4, 1, 3)
+        x = np.linspace(0, self.tempogram.shape[0] * float(self.hop_length) / self.sr,
+                        num=self.tempogram.shape[0])
+        plt.plot(x, np.mean(self.tempogram, axis=1), label='Mean local autocorrelation')
+        plt.xlabel('Lag (seconds)')
+        plt.axis('tight')
+        plt.legend(frameon=True)
+        plt.subplot(4,1,4)
+        # We can also plot on a BPM axis
+        freqs = librosa.tempo_frequencies(self.tempogram.shape[0], hop_length=self.hop_length, sr=self.sr)
+        plt.semilogx(freqs[1:], np.mean(self.tempogram[1:], axis=1),
+                     label='Mean local autocorrelation', basex=2)
+        plt.axvline(self.tempo, color='black', linestyle='--', alpha=.8,
+                    label='Estimated tempo={:g}'.format(self.tempo))
+        plt.legend(frameon=True)
+        plt.xlabel('BPM')
+        plt.axis('tight')
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
+
     def __init__(self):
         audio_path = librosa.util.example_audio_file()
+        # y is the waveform
+        # we have it for harmonics, percussions
+        # beats contain the timestamps of detected beats (could get frames)
+        # should probably check the point plot
         self.y, self.sr = librosa.load(audio_path)
-        hop_length = 512
-        self.oenv = librosa.onset.onset_strength(y=self.y, sr=self.sr, hop_length=hop_length)
-        self.y_harmonic = librosa.effect.harmonic(y=self.y)
-        self.y_percussive = librosa.effect.percussive(y=self.y)
-        self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='time', hop_length=hop_length)
-        self.tempogram = librosa.feature.tempogram(y=self.y, sr=self.sr, hop_length=hop_length)
+        self.hop_length = 512
+        self.oenv = librosa.onset.onset_strength(y=self.y, sr=self.sr, hop_length=self.hop_length)
+        self.y_harmonic = librosa.effects.harmonic(y=self.y)
+        self.y_percussive = librosa.effects.percussive(y=self.y)
+        self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='time', hop_length=self.hop_length)
+        self.tempogram = librosa.feature.tempogram(y=self.y, sr=self.sr, hop_length=self.hop_length)
         self.sound = pyglet.media.load(audio_path)
         self.player = pyglet.media.Player()
         self.player.queue(self.sound)
+        self.plot()
         print('loaded ' + audio_path + ' tempo: ' + str(self.tempo) + ' #beats: ' + str(len(self.beats))
                 + ' #onset: ' + str(len(self.oenv)) + ' #tempogram: ' + str(len(self.tempogram)))
+        print('#harmonic: ' + str(len(self.y_harmonic)))
+        print('#percussive: ' + str(len(self.y_percussive)))
         print(str(self.y))
         for i in self.oenv:
             print('onset at ' + str(i))
