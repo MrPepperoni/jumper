@@ -67,7 +67,14 @@ class track:
         self.sound = pyglet.media.load(audio_path)
         self.player = pyglet.media.Player()
         self.player.queue(self.sound)
-        self.plot()
+        # self.plot()
+
+        self.vertices =[None]*(len(self.oenv)*2)
+        self.vertices[::2] = range(0,len(self.oenv))
+        self.vertices[1::2] = [ x * 10 for x in self.oenv]
+        self.vertices_gl = (GLfloat * len(self.vertices))(*self.vertices)
+        glEnableClientState(GL_VERTEX_ARRAY)
+        glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
         print('loaded ' + audio_path + ' tempo: ' + str(self.tempo) + ' #beats: ' + str(len(self.beats))
                 + ' #onset: ' + str(len(self.oenv)) + ' #tempogram: ' + str(len(self.tempogram)))
         print('#harmonic: ' + str(len(self.y_harmonic)))
@@ -88,6 +95,10 @@ class track:
         self.player.stop()
 
     def draw(self):
+        glClear(GL_COLOR_BUFFER_BIT)
+        glLoadIdentity()
+        glColor4f(1,1,1,1)
+        glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
         pass
 
     def update(self, t):
