@@ -60,6 +60,7 @@ class track:
         self.y, self.sr = librosa.load(audio_path)
         self.hop_length = 512
         self.oenv = librosa.onset.onset_strength(y=self.y, sr=self.sr, hop_length=self.hop_length)
+        self.duration = librosa.core.get_duration(y=self.y, sr=self.sr, hop_length=self.hop_length)
         self.y_harmonic = librosa.effects.harmonic(y=self.y)
         self.y_percussive = librosa.effects.percussive(y=self.y)
         self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='time', hop_length=self.hop_length)
@@ -68,14 +69,20 @@ class track:
         self.player = pyglet.media.Player()
         self.player.queue(self.sound)
         # self.plot()
-
-        self.vertices =[None]*(len(self.oenv)*2)
-        self.vertices[::2] = range(0,len(self.oenv))
-        self.vertices[1::2] = [ x * 10 for x in self.oenv]
+        vlen = len(self.oenv)
+        self.vertices =[None]*(vlen*2)
+        self.vertices[::2] = [ x * self.duration / vlen for x in range(0,vlen)]
+        self.vertices[1::2] = [ x for x in self.oenv]
         self.vertices_gl = (GLfloat * len(self.vertices))(*self.vertices)
+        # oenv 0..10 kornyeken mozog, az x coord ido kene, hogy legyen (most slice)
+        
+        self.window_length = 5  # seconds
+        self.margin_l = 1.5
+        self.margin_r = 0.0
+
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
-        print('loaded ' + audio_path + ' tempo: ' + str(self.tempo) + ' #beats: ' + str(len(self.beats))
+        print('loaded ' + audio_path + ' duration: ' + str(self.duration) + ' tempo: ' + str(self.tempo) + ' #beats: ' + str(len(self.beats))
                 + ' #onset: ' + str(len(self.oenv)) + ' #tempogram: ' + str(len(self.tempogram)))
         print('#harmonic: ' + str(len(self.y_harmonic)))
         print('#percussive: ' + str(len(self.y_percussive)))
@@ -94,11 +101,44 @@ class track:
     def end(self):
         self.player.stop()
 
+    def get_amp(self,time):
+        if time <= 0:
+            return 0
+        itime = int(time / self.duration * len(self.oenv)) * 2 + 1
+        if itime >= len(self.vertices):
+            return 0
+        return max(0, min( self.vertices[itime] / 10, 1 ) )
+
     def draw(self):
         glClear(GL_COLOR_BUFFER_BIT)
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
         glLoadIdentity()
+        glOrtho(-self.margin_l,self.window_length+self.margin_r,-50,50,-1,1)
+        col = self.get_amp(self.time)
+        glBegin(GL_QUADS)
+        glColor4f(0,0,0,1)
+        glVertex2f(-self.margin_l,-50)
+        glColor4f(col,col,col,col)
+        glVertex2f(0,-50)
+        glVertex2f(0,50)
+        glColor4f(0,0,0,1)
+        glVertex2f(-self.margin_l,50)
+        glEnd()
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+
+        glTranslatef(-self.time,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
         glColor4f(1,1,1,1)
         glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
+
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+
+        glMatrixMode(GL_MODELVIEW)
         pass
 
     def update(self, t):
