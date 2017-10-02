@@ -10,6 +10,51 @@ import librosa.display
 import random
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.misc import comb
+import scipy
+
+def bernstein_poly(i, n, t):
+    """
+     The Bernstein polynomial of n, i as a function of t
+    """
+
+    return comb(n, i) * ( t**(n-i) ) * (1 - t)**i
+
+
+def bezier_curve(xPoints, yPoints, nTimes=1000):
+    """
+       Given a set of control points, return the
+       bezier curve defined by the control points.
+
+       points should be a list of lists, or list of tuples
+       such as [ [1,1], 
+                 [2,3], 
+                 [4,5], ..[Xn, Yn] ]
+        nTimes is the number of time steps, defaults to 1000
+
+        See http://processingjs.nihongoresources.com/bezierinfo/
+    """
+
+    nPoints = len(xPoints)
+
+    t = np.linspace(0.0, 1.0, nTimes)
+
+    polynomial_array = np.array([ bernstein_poly(i, nPoints-1, t) for i in range(0, nPoints)   ])
+
+    xvals = np.dot(xPoints, polynomial_array)
+    yvals = np.dot(yPoints, polynomial_array)
+
+    return xvals, yvals
+
+
+def curve(xv, yv, target):
+    f = scipy.interpolate.interp1d(xv,yv,kind='cubic')
+    minx = min(xv)
+    maxx = max(xv)
+    xr = [ max( min( maxx, (maxx - minx) * x / target + minx ), minx) for x in range(0, target) ]
+    yr = [ f(x) for x in xr]
+    return xr, yr
+    # return bezier_curve(xv, yv, target)
 
 class track:
     def plot(self):
@@ -51,12 +96,49 @@ class track:
         plt.tight_layout()
         plt.show()
 
+    def gen_track(self):
+        #lst = librosa.onset.onset_strength(y=self.y_percussive, sr=self.sr, hop_length=self.hop_length)
+        lst = None
+        sampl = 2000
+        while lst is None:
+            try:
+                lst = librosa.resample(self.y, self.sr, sampl)
+                lst = librosa.onset.onset_strength(y=lst, sr=sampl, hop_length=self.hop_length)
+            except:
+                sampl *= 2
+        vlen = len(lst)
+        lst_max = max(lst)
+        mul = 30 / max(0.001, lst_max)
+
+        xv = [ x * self.duration / vlen for x in range(0,vlen)]
+        yv = [ abs(x) * mul for x in lst]
+
+        target_points = vlen * 10
+        xr, yr = curve(xv, yv, target_points)
+        vlen = len(xr)
+        self.vertices = [None]*(vlen*2)
+        self.vertices[::2] = [ x * self.xmul for x in xr ]
+        self.vertices[1::2] = yr
+
+        #         self.vertices =[None]*(vlen*2)
+        #         self.vertices[::2] = [ x * self.duration / vlen for x in range(0,vlen)]
+        #         self.vertices[1::2] = [ abs(x) * mul for x in lst]
+
+        self.vertices_gl = (GLfloat * len(self.vertices))(*self.vertices)
+
+        self.lst = lst
+
     def __init__(self):
         audio_path = librosa.util.example_audio_file()
         # y is the waveform
         # we have it for harmonics, percussions
         # beats contain the timestamps of detected beats (could get frames)
         # should probably check the point plot
+        self.window_length = 5  # seconds
+        self.margin_l = 1.5
+        self.margin_r = 0.0
+        self.xmul = 5
+
         self.y, self.sr = librosa.load(audio_path)
         self.hop_length = 512
         self.oenv = librosa.onset.onset_strength(y=self.y, sr=self.sr, hop_length=self.hop_length)
@@ -69,16 +151,7 @@ class track:
         self.player = pyglet.media.Player()
         self.player.queue(self.sound)
         # self.plot()
-        vlen = len(self.oenv)
-        self.vertices =[None]*(vlen*2)
-        self.vertices[::2] = [ x * self.duration / vlen for x in range(0,vlen)]
-        self.vertices[1::2] = [ x for x in self.oenv]
-        self.vertices_gl = (GLfloat * len(self.vertices))(*self.vertices)
-        # oenv 0..10 kornyeken mozog, az x coord ido kene, hogy legyen (most slice)
-        
-        self.window_length = 5  # seconds
-        self.margin_l = 1.5
-        self.margin_r = 0.0
+        self.gen_track()
 
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
@@ -104,7 +177,7 @@ class track:
     def get_amp(self,time):
         if time <= 0:
             return 0
-        itime = int(time / self.duration * len(self.oenv)) * 2 + 1
+        itime = int(time / self.duration * len(self.lst)) * 2 + 1
         if itime >= len(self.vertices):
             return 0
         return max(0, min( self.vertices[itime] / 10, 1 ) )
@@ -129,7 +202,7 @@ class track:
         glPushMatrix()
         glLoadIdentity()
 
-        glTranslatef(-self.time,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
+        glTranslatef(-self.time * self.xmul,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
         glColor4f(1,1,1,1)
         glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
 
