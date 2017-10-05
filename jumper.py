@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.misc import comb
 import scipy
+import os
+import sys
 
 def bernstein_poly(i, n, t):
     """
@@ -57,6 +59,11 @@ def curve(xv, yv, target):
     # return bezier_curve(xv, yv, target)
 
 class track:
+    class Jump(Enum):
+        floor = 1
+        single = 2
+        double = 3
+
     def plot(self):
         plt.figure(figsize=(8, 8))
         plt.plot(self.beats, 'ro', label='Onset strength')
@@ -96,22 +103,82 @@ class track:
         plt.tight_layout()
         plt.show()
 
+    def gen_chroma(self):
+        y = self.y
+        sr = self.sr
+
+        y_harm = librosa.effects.harmonic(y=y, margin=8)
+        chroma_os_harm = librosa.feature.chroma_cqt(y=self.y_percussive, sr=sr, bins_per_octave=12*3)
+
+        chroma_filter = np.minimum(chroma_os_harm,
+                           librosa.decompose.nn_filter(chroma_os_harm,
+                                                       aggregate=np.median,
+                                                       metric='cosine'))
+
+        self.chroma_smooth = scipy.ndimage.median_filter(chroma_filter, size=(1, 9))
+        # sys.exit(0)
+
+        D = librosa.stft(y)
+        H, P = librosa.decompose.hpss(D)
+        self.db = librosa.amplitude_to_db(D, ref=np.max)
+
     def gen_track(self):
+        # self.gen_chroma()
+        # tp = self.db.T
+
         #lst = librosa.onset.onset_strength(y=self.y_percussive, sr=self.sr, hop_length=self.hop_length)
+
+        # print('t: %s n: %s' % (len(tp),len(tp[0])))
+
+        # lst = [ max(1, 80 + max(tp[sample])) * (1 + np.argmax(tp[sample])) * max(1, 80 + np.average(tp[sample]))  for sample in range(0, len(tp)) ]
+        # lst = [ (1 + np.argmax(tp[sample])) * (max(1, 80 + max(tp[sample])) * abs( np.sum(tp[sample])))  for sample in range(0, len(tp)) ]
+
+
+        '''
+        mi legyen a jo megoldas a palya genre?
+        meg kene nezni a beateket, amikor beat van, akkor felmegyunk, amikor nincs, akkor le
+        ez eddig zsirfeka
+        es megnezzuk a beat utan az y maxot vagy a max decibelt, es meg azt raszorozzuk
+        jo lesz?
+        jo lesz.
+
+        '''
+        '''
+        db chroma: frames
+        y: samples
+        '''
+
+        # sys.exit(0)
+
+        '''
         lst = None
-        sampl = 2000
+        sampl = 20000
         while lst is None:
             try:
-                lst = librosa.resample(self.y, self.sr, sampl)
-                lst = librosa.onset.onset_strength(y=lst, sr=sampl, hop_length=self.hop_length)
+                lst = librosa.resample(self.y_percussive, self.sr, sampl)
             except:
                 sampl *= 2
+
+        self.tempo, self.beats = librosa.beat.beat_track(y=lst, sr=sampl, units='samples', hop_length=self.hop_length)
+        print('beats: %i db: %i %i chroma: %i %i y: %i' %
+                (len(self.beats),len(self.db),len(self.db[0]), len(self.chroma_smooth), len(self.chroma_smooth[0]), len(lst)))
+        print(str(self.beats))
+        '''
+        numparts = 400
+        lst = self.y
+        lst = [ abs(x) * (ind in self.beats and 1 or 0) for ind, x in enumerate(lst) ]
+        lst_harmonic = [ max(x) for x in np.array_split(lst,numparts) ]
+        lst = self.y_percussive
+        lst = [ abs(x) * (ind in self.beats and 1 or 0) for ind, x in enumerate(lst) ]
+        lst_percussive = [ max(x) for x in np.array_split(lst,numparts) ]
+        lst = [ x[0] > x[1] and -x[0] or x[1] for x in zip(lst_harmonic, lst_percussive) ]
+        print(str(lst))
         vlen = len(lst)
-        lst_max = max(lst)
+        lst_max = max(max(lst),abs(min(lst)))
         mul = 30 / max(0.001, lst_max)
 
         xv = [ x * self.duration / vlen for x in range(0,vlen)]
-        yv = [ abs(x) * mul for x in lst]
+        yv = [ x * mul for x in lst]
 
         target_points = vlen * 10
         xr, yr = curve(xv, yv, target_points)
@@ -138,14 +205,18 @@ class track:
         self.margin_l = 1.5
         self.margin_r = 0.0
         self.xmul = 5
+        self.ball = 50
+        self.ball_sp = 0
+        self.ball_st = track.Jump.double
 
         self.y, self.sr = librosa.load(audio_path)
         self.hop_length = 512
         self.oenv = librosa.onset.onset_strength(y=self.y, sr=self.sr, hop_length=self.hop_length)
         self.duration = librosa.core.get_duration(y=self.y, sr=self.sr, hop_length=self.hop_length)
-        self.y_harmonic = librosa.effects.harmonic(y=self.y)
-        self.y_percussive = librosa.effects.percussive(y=self.y)
-        self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='time', hop_length=self.hop_length)
+        self.y_harmonic, self.y_percussive = librosa.effects.hpss(y=self.y,margin=16.0)
+        # librosa.output.write_wav(path='/tmp/harmonic.wav',y=self.y_harmonic,sr=self.sr)
+        # librosa.output.write_wav(path='/tmp/percussive.wav',y=self.y_percussive,sr=self.sr)
+        self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='samples', hop_length=self.hop_length)
         self.tempogram = librosa.feature.tempogram(y=self.y, sr=self.sr, hop_length=self.hop_length)
         self.sound = pyglet.media.load(audio_path)
         self.player = pyglet.media.Player()
@@ -160,12 +231,6 @@ class track:
         print('#harmonic: ' + str(len(self.y_harmonic)))
         print('#percussive: ' + str(len(self.y_percussive)))
         print(str(self.y))
-        for i in self.oenv:
-            print('onset at ' + str(i))
-        for i in self.beats:
-            print('beat at ' + str(i))
-        for i in self.tempogram:
-            print('tempo at ' + str(i))
 
     def play(self):
         self.time = 0
@@ -177,10 +242,14 @@ class track:
     def get_amp(self,time):
         if time <= 0:
             return 0
-        itime = int(time / self.duration * len(self.lst)) * 2 + 1
+        itime = int(time / self.duration * len(self.vertices)//2) * 2 + 1
         if itime >= len(self.vertices):
             return 0
         return max(0, min( self.vertices[itime] / 10, 1 ) )
+
+    def get_h(self,time):
+        itime = int(time / self.duration * len(self.vertices_gl)//2) * 2 + 1
+        return self.vertices_gl[max(0,min(len(self.vertices_gl)-1,itime))]
 
     def draw(self):
         glClear(GL_COLOR_BUFFER_BIT)
@@ -190,20 +259,22 @@ class track:
         glOrtho(-self.margin_l,self.window_length+self.margin_r,-50,50,-1,1)
         col = self.get_amp(self.time)
         glBegin(GL_QUADS)
-        glColor4f(0,0,0,1)
-        glVertex2f(-self.margin_l,-50)
-        glColor4f(col,col,col,col)
-        glVertex2f(0,-50)
-        glVertex2f(0,50)
-        glColor4f(0,0,0,1)
-        glVertex2f(-self.margin_l,50)
+        glColor4f(1,0,0,col)
+        h = self.ball
+        glVertex2f(-0.5,h-5)
+        glColor4f(0,1,0,col)
+        glVertex2f(0.5,h-5)
+        glColor4f(0,0,1,col)
+        glVertex2f(0.5,h+5)
+        glColor4f(0,1,1,col)
+        glVertex2f(-0.5,h+5)
         glEnd()
         glMatrixMode(GL_MODELVIEW)
         glPushMatrix()
         glLoadIdentity()
 
         glTranslatef(-self.time * self.xmul,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
-        glColor4f(1,1,1,1)
+        glColor4f(1,1,1,0)
         glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
 
         glMatrixMode(GL_MODELVIEW)
@@ -214,8 +285,29 @@ class track:
         glMatrixMode(GL_MODELVIEW)
         pass
 
+
     def update(self, t):
         self.time += t
+        self.ball_sp += 360 * t
+        self.ball -= self.ball_sp * t
+        h = self.get_h(self.time)
+        if self.ball <= h or self.ball_st == track.Jump.floor:
+            self.ball_st = track.Jump.floor
+            self.ball = h
+            self.ball_sp = 0
+
+    def handle_keypress(self, symbol):
+        if symbol == key.DOWN:
+            pass
+        elif symbol == key.UP:
+            if self.ball_st != track.Jump.double:
+                self.ball_sp = -120
+                if self.ball_st == track.Jump.single:
+                    self.ball_st = track.Jump.double
+                else:
+                    self.ball_st = track.Jump.single
+        elif symbol == key.RETURN:
+            pass
 
 
 class highscores:
@@ -454,6 +546,9 @@ class game:
         print('key pressed: ' + str(symbol))
         if self.state == game.State.menu:
             self.menu.handle_keypress(symbol)
+        elif self.state == game.State.ingame:
+            self.track.handle_keypress(symbol)
+
         if symbol == pyglet.window.key.ESCAPE:
             if self.state == game.State.ingame:
                 self.end_game(random.randint(100,200))
