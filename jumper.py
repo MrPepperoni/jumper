@@ -13,9 +13,39 @@ import numpy as np
 from scipy.misc import comb
 import scipy
 import os
-import sys
 from pyglet2d import Shape
 import random
+
+point_penalty = 5
+point_reward = 1
+bomb_size = 0.3
+coin_size = 0.05
+slide_time_max = 0.8
+slide_ball_speed = 0.1
+ball_accel = 20
+jump_speed = 7
+drop_speed = 5.2
+beat_spawn_delay = 0.1
+verbose_fs = 12
+info_fs = 14
+important_fs = 16
+
+def print_loading(window):
+    l = pyglet.text.Label('Loading...',
+        font_name='Times New Roman',
+        font_size=verbose_fs,
+        x=window.width/2,
+        y=window.height/2,
+        anchor_x='center',
+        anchor_y='center')
+    window.clear()
+    l.draw()
+    glFinish()
+    window.flip()
+    window.clear()
+    l.draw()
+    glFinish()
+    window.flip()
 
 def bernstein_poly(i, n, t):
     """
@@ -70,76 +100,7 @@ class track:
         during = 2
         done = 3
 
-    def plot(self):
-        plt.figure(figsize=(8, 8))
-        plt.plot(self.beats, 'ro', label='Onset strength')
-        # plt.plot([x[1] for x in self.tempogram], label='tempogram')
-        # plt.xticks([])
-        # plt.legend(frameon=True)
-        # plt.axis('tight')
-        # librosa.display.specshow(self.tempogram, sr=self.sr, hop_length=self.hop_length, x_axis='time', y_axis='tempo')
-        plt.show()
-        if True:
-            return
-        plt.subplot(4, 1, 2)
-        # We'll truncate the display to a narrower range of tempi
-        librosa.display.specshow(self.tempogram, sr=self.sr, hop_length=self.hop_length,
-                                 x_axis='time', y_axis='tempo')
-        plt.axhline(self.tempo, color='w', linestyle='--', alpha=1,
-                    label='Estimated tempo={:g}'.format(self.tempo))
-        plt.legend(frameon=True, framealpha=0.75)
-        plt.subplot(4, 1, 3)
-        x = np.linspace(0, self.tempogram.shape[0] * float(self.hop_length) / self.sr,
-                        num=self.tempogram.shape[0])
-        plt.plot(x, np.mean(self.tempogram, axis=1), label='Mean local autocorrelation')
-        plt.xlabel('Lag (seconds)')
-        plt.axis('tight')
-        plt.legend(frameon=True)
-        plt.subplot(4,1,4)
-        # We can also plot on a BPM axis
-        freqs = librosa.tempo_frequencies(self.tempogram.shape[0], hop_length=self.hop_length, sr=self.sr)
-        plt.semilogx(freqs[1:], np.mean(self.tempogram[1:], axis=1),
-                     label='Mean local autocorrelation', basex=2)
-        plt.axvline(self.tempo, color='black', linestyle='--', alpha=.8,
-                    label='Estimated tempo={:g}'.format(self.tempo))
-        plt.legend(frameon=True)
-        plt.xlabel('BPM')
-        plt.axis('tight')
-        plt.grid()
-        plt.tight_layout()
-        plt.show()
-
-    def gen_chroma(self):
-        y = self.y
-        sr = self.sr
-
-        y_harm = librosa.effects.harmonic(y=y, margin=8)
-        chroma_os_harm = librosa.feature.chroma_cqt(y=self.y_percussive, sr=sr, bins_per_octave=12*3)
-
-        chroma_filter = np.minimum(chroma_os_harm,
-                           librosa.decompose.nn_filter(chroma_os_harm,
-                                                       aggregate=np.median,
-                                                       metric='cosine'))
-
-        self.chroma_smooth = scipy.ndimage.median_filter(chroma_filter, size=(1, 9))
-        # sys.exit(0)
-
-        D = librosa.stft(y)
-        H, P = librosa.decompose.hpss(D)
-        self.db = librosa.amplitude_to_db(D, ref=np.max)
-
     def gen_track(self):
-        # self.gen_chroma()
-        # tp = self.db.T
-
-        #lst = librosa.onset.onset_strength(y=self.y_percussive, sr=self.sr, hop_length=self.hop_length)
-
-        # print('t: %s n: %s' % (len(tp),len(tp[0])))
-
-        # lst = [ max(1, 80 + max(tp[sample])) * (1 + np.argmax(tp[sample])) * max(1, 80 + np.average(tp[sample]))  for sample in range(0, len(tp)) ]
-        # lst = [ (1 + np.argmax(tp[sample])) * (max(1, 80 + max(tp[sample])) * abs( np.sum(tp[sample])))  for sample in range(0, len(tp)) ]
-
-
         '''
         mi legyen a jo megoldas a palya genre?
         meg kene nezni a beateket, amikor beat van, akkor felmegyunk, amikor nincs, akkor le
@@ -154,22 +115,6 @@ class track:
         y: samples
         '''
 
-        # sys.exit(0)
-
-        '''
-        lst = None
-        sampl = 20000
-        while lst is None:
-            try:
-                lst = librosa.resample(self.y_percussive, self.sr, sampl)
-            except:
-                sampl *= 2
-
-        self.tempo, self.beats = librosa.beat.beat_track(y=lst, sr=sampl, units='samples', hop_length=self.hop_length)
-        print('beats: %i db: %i %i chroma: %i %i y: %i' %
-                (len(self.beats),len(self.db),len(self.db[0]), len(self.chroma_smooth), len(self.chroma_smooth[0]), len(lst)))
-        print(str(self.beats))
-        '''
         numparts = 400
         lst = self.y
         lst = [ abs(x) * (ind in self.beats and 1 or 0) for ind, x in enumerate(lst) ]
@@ -194,16 +139,38 @@ class track:
         self.vertices[::2] = [ x * self.xmul for x in xr ]
         self.vertices[1::2] = yr
 
-        #         self.vertices =[None]*(vlen*2)
-        #         self.vertices[::2] = [ x * self.duration / vlen for x in range(0,vlen)]
-        #         self.vertices[1::2] = [ abs(x) * mul for x in lst]
-
         self.vertices_gl = (GLfloat * len(self.vertices))(*self.vertices)
-
         self.lst = lst
 
     def __init__(self, g):
         self.g = g
+        self.loaded = False
+
+    def update_score(self):
+        self.score = pyglet.text.Label('Score: %i Time: %f' % (self.points, self.time),
+                font_name='Times New Roman',
+                font_size=important_fs,
+                x=self.g.window.width / 2,
+                y=self.g.window.height - 20,
+                anchor_x='center',
+                anchor_y='center')
+
+    def load(self):
+        try:
+            self.player.pause()
+            self.player.seek(0)
+        except:
+            pass
+
+        if self.loaded:
+            for c in self.coins:
+                c.enable(True)
+            for b in self.bombs:
+                b.enable(True)
+            return
+
+        print_loading(self.g.window)
+        self.points = 0
         audio_path = librosa.util.example_audio_file()
         random.seed(audio_path)
         # y is the waveform
@@ -214,48 +181,51 @@ class track:
         self.margin_l = 1.5
         self.margin_r = 0.0
         self.xmul = 5
-        self.ball = Shape.circle([0,0],0.1)
         self.ball_y = 2
+        self.ball = Shape.circle([0,self.ball_y],0.1)
         self.ball_sp = 0
         self.ball_st = track.Jump.double
         self.slide = track.Slide.no
         self.slide_time = 0
+        self.time = 0
 
         self.y, self.sr = librosa.load(audio_path)
         self.hop_length = 512
-        self.oenv = librosa.onset.onset_strength(y=self.y, sr=self.sr, hop_length=self.hop_length)
         self.duration = librosa.core.get_duration(y=self.y, sr=self.sr, hop_length=self.hop_length)
         self.y_harmonic, self.y_percussive = librosa.effects.hpss(y=self.y,margin=16.0)
-        # librosa.output.write_wav(path='/tmp/harmonic.wav',y=self.y_harmonic,sr=self.sr)
-        # librosa.output.write_wav(path='/tmp/percussive.wav',y=self.y_percussive,sr=self.sr)
         self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='samples', hop_length=self.hop_length)
-        self.tempogram = librosa.feature.tempogram(y=self.y, sr=self.sr, hop_length=self.hop_length)
         self.sound = pyglet.media.load(audio_path)
         self.player = pyglet.media.Player()
         self.player.queue(self.sound)
-        # self.plot()
         self.gen_track()
-
+        self.update_score()
         self.coins = []
+        self.bombs = []
         for time in librosa.core.samples_to_time(self.beats):
-            t = time + 0.8
-            if True or random.randint(0,3) > 2:
-                self.coins.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.3,1.2)],0.05))
+            t = time + beat_spawn_delay
+            roll = random.randint(0,6)
+            if roll > 2:
+                self.coins.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.3,1.2)],coin_size))
+            elif roll > 0:
+                self.bombs.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.5,1.5)],bomb_size,color=[128,0,0]))
 
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
-        print('loaded ' + audio_path + ' duration: ' + str(self.duration) + ' tempo: ' + str(self.tempo) + ' #beats: ' + str(len(self.beats))
-                + ' #onset: ' + str(len(self.oenv)) + ' #tempogram: ' + str(len(self.tempogram)))
-        print('#harmonic: ' + str(len(self.y_harmonic)))
-        print('#percussive: ' + str(len(self.y_percussive)))
-        print(str(self.y))
+        self.loaded = True
 
     def play(self):
-        self.time = 0
-        self.player.play()
+        self.time = -1
+        self.player.seek(0)
+        # az update fogja a valosagban elinditani
 
     def end(self):
-        self.player.stop()
+        try:
+            self.player.pause()
+        except:
+            pass
+        self.g.end_game(self.points)
+        self.points = 0
+        self.time = -1
 
     def get_amp(self,time):
         if time <= 0:
@@ -269,8 +239,13 @@ class track:
         itime = int(time / self.duration * len(self.vertices_gl)//2) * 2 + 1
         return self.vertices_gl[max(0,min(len(self.vertices_gl)-1,itime))]
 
+    # ezt okosabban is lehetne, tudjuk, hogy melyk beatek jatszhatnak egyaltalan minden egyes idopontban
+    def is_visible(self, circle):
+        return circle.enabled and circle.center[0] + circle.radius >= self.time * self.xmul - self.margin_l and circle.center[0] - circle.radius < self.time * self.xmul + self.window_length + self.margin_r
+
     def draw(self):
         glClear(GL_COLOR_BUFFER_BIT)
+        self.score.draw()
         glMatrixMode(GL_PROJECTION)
         glPushMatrix()
         glLoadIdentity()
@@ -282,32 +257,38 @@ class track:
         glLoadIdentity()
 
         col = self.get_amp(self.time)
-        h = self.ball_y
-        glTranslatef(0,h,0)
-        self.ball.draw()
-        glTranslatef(0,-h,0)
 
         glTranslatef(-self.time * self.xmul,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
+        self.ball.draw()
         glColor4f(1,1,1,0)
         glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
         for c in self.coins:
-            c.draw()
+            if self.is_visible(c):
+                c.draw()
+        for c in self.bombs:
+            if self.is_visible(c):
+                c.draw()
         glMatrixMode(GL_MODELVIEW)
         glPopMatrix()
         glMatrixMode(GL_PROJECTION)
         glPopMatrix()
 
         glMatrixMode(GL_MODELVIEW)
-        pass
 
 
     def update(self, t):
+        # kozvetlen betoltes utan kapunk egy mocsoknagy dt-t, es a palya kozepere ugrunk. not fun.
+        if self.time < -0.5:
+            self.time = 0
+            self.player.play()
+            return
+
         self.time += t
-        self.ball_sp += 12.6 * t
+        self.ball_sp += ball_accel * t
         if self.slide == track.Slide.during:
             self.slide_time += t
-            if self.slide_time < 0.8 and self.ball_st != track.Jump.floor:
-                self.ball_sp = 0.1
+            if self.slide_time < slide_time_max and self.ball_st != track.Jump.floor:
+                self.ball_sp = slide_ball_speed
         self.ball_y -= self.ball_sp * t
         h = self.get_h(self.time)
         if self.ball_y - self.ball.radius <= h or self.ball_st == track.Jump.floor:
@@ -316,16 +297,38 @@ class track:
             self.ball_y = h + self.ball.radius
             self.ball_sp = 0
 
+        self.ball.center = [self.time * self.xmul, self.ball_y]
+        self.ball.enable(True)
+
+        for c in self.coins:
+            if self.is_visible(c):
+                if self.ball.overlaps(c):
+                    c.enable(False)
+                    self.points += point_reward
+
+        for c in self.bombs:
+            if self.is_visible(c):
+                if self.ball.overlaps(c):
+                    c.enable(False)
+                    self.points -= point_penalty
+                    if self.points < 0:
+                        self.points = 0
+
+        self.update_score()
+
+        if self.time >= self.duration:
+            self.end()
+
     def handle_keypress(self, symbol):
         if symbol in [key.UP, key.W]:
             if self.ball_st != track.Jump.double:
-                self.ball_sp = -5.2
+                self.ball_sp = -jump_speed
                 if self.ball_st == track.Jump.single:
                     self.ball_st = track.Jump.double
                 else:
                     self.ball_st = track.Jump.single
         elif symbol in [ key.DOWN, key.S ]:
-            self.ball_sp += 5.2
+            self.ball_sp += drop_speed
             self.ball_st = track.Jump.double
         elif symbol in [ key.SPACE, key.RIGHT, key.D ]:
             if self.slide == track.Slide.no:
@@ -345,7 +348,7 @@ class highscores:
         self.g = g
         self.title = pyglet.text.Label('High Scores',
                 font_name='Times New Roman',
-                font_size=15,
+                font_size=important_fs,
                 x=self.g.window.width/2,
                 y=self.g.window.height - 25,
                 anchor_x='center',
@@ -374,7 +377,7 @@ class highscores:
         for x in self.scores:
             self.labels.append(pyglet.text.Label(str(x),
                 font_name='Times New Roman',
-                font_size=10,
+                font_size=info_fs,
                 x=self.g.window.width/2,
                 y=self.g.window.height - dy,
                 anchor_x='center',
@@ -429,7 +432,6 @@ class menu:
             self.active = 0
         print('active entry: ' + str(self.active) + ' ' + self.entries[self.active])
         self.update_labels()
-        self.g.window.invalid = True
 
     def label_height(self):
         return self.g.window.height/2/len(self.entries)
@@ -467,7 +469,7 @@ class menu:
         self.active = 0
         self.labels = [pyglet.text.Label(x,
                     font_name='Times New Roman',
-                    font_size=10,
+                    font_size=verbose_fs,
                     x=self.g.window.width/2,
                     y=self.g.window.height/2,
                     anchor_x='center',
@@ -482,21 +484,21 @@ class gameover:
         self.g = g
         self.title = pyglet.text.Label('Game Over',
                 font_name='Times New Roman',
-                font_size=15,
+                font_size=info_fs,
                 x=self.g.window.width/2,
                 y=self.g.window.height - 155,
                 anchor_x='center',
                 anchor_y='center')
         self.high = pyglet.text.Label('You made the top 10!',
                 font_name='Times New Roman',
-                font_size=15,
+                font_size=important_fs,
                 x=self.g.window.width/2,
                 y=self.g.window.height/2,
                 anchor_x='center',
                 anchor_y='center')
         self.rec = pyglet.text.Label('Who\'s the best? Who\'s the best? YOU are the best!',
                 font_name='Times New Roman',
-                font_size=22,
+                font_size=important_fs,
                 x=self.g.window.width/2,
                 y=self.g.window.height/2,
                 anchor_x='center',
@@ -551,6 +553,7 @@ class game:
     def update(self, dt):
         if self.state == game.State.ingame:
             self.track.update(dt)
+            self.window.invalid = True
         pass
 
     def on_draw(self):
@@ -567,10 +570,10 @@ class game:
             self.track.draw()
 
         self.fps_display.draw()
-        self.window.flip()
 
     def end_game(self, score):
-        self.gameover.over(score)
+        if score >= 0:
+            self.gameover.over(score)
         self.state = game.State.gameover
 
     def on_key_release(self,symbol,modifiers):
@@ -586,9 +589,17 @@ class game:
         elif self.state == game.State.ingame:
             self.track.handle_keypress(symbol)
 
+        if symbol == pyglet.window.key.RETURN:
+            if self.state == game.State.gameover:
+                self.state = game.State.highscores
+            elif self.state == game.State.highscores:
+                self.state = game.State.menu
+
         if symbol == pyglet.window.key.ESCAPE:
             if self.state == game.State.ingame:
-                self.end_game(random.randint(100,200))
+                self.end_game(-1)
+            elif self.state == game.State.menu:
+                pyglet.app.exit()
             else:
                 self.state = game.State.menu
         return pyglet.event.EVENT_HANDLED
@@ -603,6 +614,7 @@ class game:
         self.newhighscore = False
         self.newrecord = False
         self.state = game.State.ingame
+        self.track.load()
         self.track.play()
 
 def main():
