@@ -15,6 +15,7 @@ import scipy
 import os
 import sys
 from pyglet2d import Shape
+import random
 
 def bernstein_poly(i, n, t):
     """
@@ -187,6 +188,7 @@ class track:
 
         target_points = vlen * 10
         xr, yr = curve(xv, yv, target_points)
+        # xr, yr = xv, yv
         vlen = len(xr)
         self.vertices = [None]*(vlen*2)
         self.vertices[::2] = [ x * self.xmul for x in xr ]
@@ -203,6 +205,7 @@ class track:
     def __init__(self, g):
         self.g = g
         audio_path = librosa.util.example_audio_file()
+        random.seed(audio_path)
         # y is the waveform
         # we have it for harmonics, percussions
         # beats contain the timestamps of detected beats (could get frames)
@@ -234,9 +237,10 @@ class track:
         self.gen_track()
 
         self.coins = []
-        for t in librosa.core.samples_to_time(self.beats):
-            if True:
-                self.coins.append(Shape.circle([t * self.xmul, self.get_h(t)],0.05))
+        for time in librosa.core.samples_to_time(self.beats):
+            t = time + 0.8
+            if True or random.randint(0,3) > 2:
+                self.coins.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.3,1.2)],0.05))
 
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
@@ -320,6 +324,9 @@ class track:
                     self.ball_st = track.Jump.double
                 else:
                     self.ball_st = track.Jump.single
+        elif symbol in [ key.DOWN, key.S ]:
+            self.ball_sp += 5.2
+            self.ball_st = track.Jump.double
         elif symbol in [ key.SPACE, key.RIGHT, key.D ]:
             if self.slide == track.Slide.no:
                 self.slide = track.Slide.during
