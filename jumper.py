@@ -6,13 +6,9 @@ from pyglet.window import mouse
 from pyglet.gl import *
 from enum import Enum
 import librosa
-import librosa.display
 import random
-import matplotlib.pyplot as plt
 import numpy as np
-from scipy.misc import comb
 import scipy
-import os
 from pyglet2d import Shape
 import random
 
@@ -25,10 +21,12 @@ slide_ball_speed = 0.1
 ball_accel = 20
 jump_speed = 7
 drop_speed = 5.2
-beat_spawn_delay = 0.1
+beat_coin_delay = 0.02
+beat_bomb_delay = 0.1
 verbose_fs = 12
 info_fs = 14
-important_fs = 16
+important_fs = 18
+track_line_width = 5
 
 def print_loading(window):
     l = pyglet.text.Label('Loading...',
@@ -47,39 +45,6 @@ def print_loading(window):
     glFinish()
     window.flip()
 
-def bernstein_poly(i, n, t):
-    """
-     The Bernstein polynomial of n, i as a function of t
-    """
-
-    return comb(n, i) * ( t**(n-i) ) * (1 - t)**i
-
-
-def bezier_curve(xPoints, yPoints, nTimes=1000):
-    """
-       Given a set of control points, return the
-       bezier curve defined by the control points.
-
-       points should be a list of lists, or list of tuples
-       such as [ [1,1], 
-                 [2,3], 
-                 [4,5], ..[Xn, Yn] ]
-        nTimes is the number of time steps, defaults to 1000
-
-        See http://processingjs.nihongoresources.com/bezierinfo/
-    """
-
-    nPoints = len(xPoints)
-
-    t = np.linspace(0.0, 1.0, nTimes)
-
-    polynomial_array = np.array([ bernstein_poly(i, nPoints-1, t) for i in range(0, nPoints)   ])
-
-    xvals = np.dot(xPoints, polynomial_array)
-    yvals = np.dot(yPoints, polynomial_array)
-
-    return xvals, yvals
-
 def curve(xv, yv, target):
     f = scipy.interpolate.interp1d(xv,yv,kind='cubic')
     minx = min(xv)
@@ -87,7 +52,6 @@ def curve(xv, yv, target):
     xr = [ max( min( maxx, (maxx - minx) * x / target + minx ), minx) for x in range(0, target) ]
     yr = [ f(x) for x in xr]
     return xr, yr
-    # return bezier_curve(xv, yv, target)
 
 class track:
     class Jump(Enum):
@@ -147,7 +111,7 @@ class track:
         self.loaded = False
 
     def update_score(self):
-        self.score = pyglet.text.Label('Score: %i Time: %f' % (self.points, self.time),
+        self.score = pyglet.text.Label('Score: %i' % self.points,
                 font_name='Times New Roman',
                 font_size=important_fs,
                 x=self.g.window.width / 2,
@@ -202,11 +166,12 @@ class track:
         self.coins = []
         self.bombs = []
         for time in librosa.core.samples_to_time(self.beats):
-            t = time + beat_spawn_delay
             roll = random.randint(0,6)
             if roll > 2:
+                t = time + beat_coin_delay
                 self.coins.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.3,1.2)],coin_size))
             elif roll > 0:
+                t = time + beat_bomb_delay
                 self.bombs.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.5,1.5)],bomb_size,color=[128,0,0]))
 
         glEnableClientState(GL_VERTEX_ARRAY)
@@ -261,6 +226,9 @@ class track:
         glTranslatef(-self.time * self.xmul,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
         self.ball.draw()
         glColor4f(1,1,1,0)
+        glLineWidth(track_line_width)
+        glEnable(GL_LINE_SMOOTH);
+        glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
         glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
         for c in self.coins:
             if self.is_visible(c):
@@ -272,7 +240,6 @@ class track:
         glPopMatrix()
         glMatrixMode(GL_PROJECTION)
         glPopMatrix()
-
         glMatrixMode(GL_MODELVIEW)
 
 
@@ -300,6 +267,8 @@ class track:
         self.ball.center = [self.time * self.xmul, self.ball_y]
         self.ball.enable(True)
 
+        opoints = self.points
+
         for c in self.coins:
             if self.is_visible(c):
                 if self.ball.overlaps(c):
@@ -314,7 +283,8 @@ class track:
                     if self.points < 0:
                         self.points = 0
 
-        self.update_score()
+        if opoints != self.points:
+            self.update_score()
 
         if self.time >= self.duration:
             self.end()
@@ -350,7 +320,7 @@ class highscores:
                 font_name='Times New Roman',
                 font_size=important_fs,
                 x=self.g.window.width/2,
-                y=self.g.window.height - 25,
+                y=self.g.window.height - 3 * important_fs,
                 anchor_x='center',
                 anchor_y='center')
         self.scores = []
@@ -372,7 +342,7 @@ class highscores:
         self.update_labels()
 
     def update_labels(self):
-        dy = 50
+        dy = 5 * important_fs
         self.labels.clear()
         for x in self.scores:
             self.labels.append(pyglet.text.Label(str(x),
@@ -382,7 +352,7 @@ class highscores:
                 y=self.g.window.height - dy,
                 anchor_x='center',
                 anchor_y='center'))
-            dy += 15
+            dy += int(info_fs * 1.5)
 
     def add(self, score):
         mx = score - 1
@@ -525,7 +495,7 @@ class game:
         highscores = 4
 
     def __init__(self):
-        config = pyglet.gl.Config(double_buffer=True)
+        config = pyglet.gl.Config(double_buffer=True, sample_buffers=1, samples=4)
         self.window = pyglet.window.Window(config=config,vsync=False)    # fullscreen = True
         self.window.push_handlers(pyglet.window.event.WindowEventLogger())
         pyglet.clock.schedule_interval(self.update, 1.0/128.0)
@@ -590,10 +560,13 @@ class game:
             self.track.handle_keypress(symbol)
 
         if symbol == pyglet.window.key.RETURN:
+            # for some reason auto-leaves high scores on entering it...
+            #if self.state == game.State.highscores:
+            #    self.state = game.State.menu
+            #    return pyglet.event.EVENT_HANDLED
             if self.state == game.State.gameover:
                 self.state = game.State.highscores
-            elif self.state == game.State.highscores:
-                self.state = game.State.menu
+                return pyglet.event.EVENT_HANDLED
 
         if symbol == pyglet.window.key.ESCAPE:
             if self.state == game.State.ingame:
