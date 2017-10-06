@@ -14,6 +14,7 @@ from scipy.misc import comb
 import scipy
 import os
 import sys
+from pyglet2d import Shape
 
 def bernstein_poly(i, n, t):
     """
@@ -48,7 +49,6 @@ def bezier_curve(xPoints, yPoints, nTimes=1000):
 
     return xvals, yvals
 
-
 def curve(xv, yv, target):
     f = scipy.interpolate.interp1d(xv,yv,kind='cubic')
     minx = min(xv)
@@ -63,6 +63,11 @@ class track:
         floor = 1
         single = 2
         double = 3
+
+    class Slide(Enum):
+        no = 1
+        during = 2
+        done = 3
 
     def plot(self):
         plt.figure(figsize=(8, 8))
@@ -175,7 +180,7 @@ class track:
         print(str(lst))
         vlen = len(lst)
         lst_max = max(max(lst),abs(min(lst)))
-        mul = 30 / max(0.001, lst_max)
+        mul = 1 / max(0.001, lst_max)
 
         xv = [ x * self.duration / vlen for x in range(0,vlen)]
         yv = [ x * mul for x in lst]
@@ -195,7 +200,8 @@ class track:
 
         self.lst = lst
 
-    def __init__(self):
+    def __init__(self, g):
+        self.g = g
         audio_path = librosa.util.example_audio_file()
         # y is the waveform
         # we have it for harmonics, percussions
@@ -205,9 +211,12 @@ class track:
         self.margin_l = 1.5
         self.margin_r = 0.0
         self.xmul = 5
-        self.ball = 50
+        self.ball = Shape.circle([0,0],0.1)
+        self.ball_y = 2
         self.ball_sp = 0
         self.ball_st = track.Jump.double
+        self.slide = track.Slide.no
+        self.slide_time = 0
 
         self.y, self.sr = librosa.load(audio_path)
         self.hop_length = 512
@@ -256,22 +265,18 @@ class track:
         glMatrixMode(GL_PROJECTION)
         glPushMatrix()
         glLoadIdentity()
-        glOrtho(-self.margin_l,self.window_length+self.margin_r,-50,50,-1,1)
-        col = self.get_amp(self.time)
-        glBegin(GL_QUADS)
-        glColor4f(1,0,0,col)
-        h = self.ball
-        glVertex2f(-0.5,h-5)
-        glColor4f(0,1,0,col)
-        glVertex2f(0.5,h-5)
-        glColor4f(0,0,1,col)
-        glVertex2f(0.5,h+5)
-        glColor4f(0,1,1,col)
-        glVertex2f(-0.5,h+5)
-        glEnd()
+        scale = self.g.window.height / self.g.window.width
+        w = self.margin_l + self.margin_r + self.window_length
+        glOrtho(-self.margin_l,self.window_length+self.margin_r,int(-w * scale / 2),int(w * scale / 2),-1,1)
         glMatrixMode(GL_MODELVIEW)
         glPushMatrix()
         glLoadIdentity()
+
+        col = self.get_amp(self.time)
+        h = self.ball_y
+        glTranslatef(0,h,0)
+        self.ball.draw()
+        glTranslatef(0,-h,0)
 
         glTranslatef(-self.time * self.xmul,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
         glColor4f(1,1,1,0)
@@ -288,26 +293,36 @@ class track:
 
     def update(self, t):
         self.time += t
-        self.ball_sp += 360 * t
-        self.ball -= self.ball_sp * t
+        self.ball_sp += 12.6 * t
+        if self.slide == track.Slide.during:
+            self.slide_time += t
+            if self.slide_time < 0.8 and self.ball_st != track.Jump.floor:
+                self.ball_sp = 0.1
+        self.ball_y -= self.ball_sp * t
         h = self.get_h(self.time)
-        if self.ball <= h or self.ball_st == track.Jump.floor:
+        if self.ball_y <= h or self.ball_st == track.Jump.floor:
             self.ball_st = track.Jump.floor
-            self.ball = h
+            self.slide = track.Slide.no
+            self.ball_y = h
             self.ball_sp = 0
 
     def handle_keypress(self, symbol):
-        if symbol == key.DOWN:
-            pass
-        elif symbol == key.UP:
+        if symbol in [key.UP, key.W]:
             if self.ball_st != track.Jump.double:
-                self.ball_sp = -120
+                self.ball_sp = -5.2
                 if self.ball_st == track.Jump.single:
                     self.ball_st = track.Jump.double
                 else:
                     self.ball_st = track.Jump.single
-        elif symbol == key.RETURN:
-            pass
+        elif symbol in [ key.SPACE, key.RIGHT, key.D ]:
+            if self.slide == track.Slide.no:
+                self.slide = track.Slide.during
+                self.slide_time = 0
+
+    def handle_keyrelease(self, symbol):
+        if symbol in [ key.SPACE, key.RIGHT, key.D ]:
+            if self.slide != track.Slide.no:
+                self.slide = track.Slide.done
 
 
 class highscores:
@@ -504,7 +519,7 @@ class game:
         self.fps_display = pyglet.clock.ClockDisplay()
         self.state = game.State.menu
         self.menu = menu(self)
-        self.track = track()
+        self.track = track(self)
         self.highscores = highscores(self)
         self.gameover = gameover(self)
         @self.window.event
@@ -512,11 +527,14 @@ class game:
             return self.on_draw()
         @self.window.event
         def on_key_press(s,m):
-            return self.on_event(s,m)
+            return self.on_key_press(s,m)
         @self.window.event
         def on_mouse_press(x,y,button,modifiers):
             return self.on_mouse_press(x,y,button,modifiers)
-
+        @self.window.event
+        def on_key_release(s,m):
+            return self.on_key_release(s,m)
+ 
     def update(self, dt):
         if self.state == game.State.ingame:
             self.track.update(dt)
@@ -542,7 +560,13 @@ class game:
         self.gameover.over(score)
         self.state = game.State.gameover
 
-    def on_event(self,symbol,modifiers):
+    def on_key_release(self,symbol,modifiers):
+        print('key released: ' + str(symbol))
+        if self.state == game.State.ingame:
+            self.track.handle_keyrelease(symbol)
+        return pyglet.event.EVENT_HANDLED
+
+    def on_key_press(self,symbol,modifiers):
         print('key pressed: ' + str(symbol))
         if self.state == game.State.menu:
             self.menu.handle_keypress(symbol)
@@ -554,7 +578,7 @@ class game:
                 self.end_game(random.randint(100,200))
             else:
                 self.state = game.State.menu
-            return pyglet.event.EVENT_HANDLED
+        return pyglet.event.EVENT_HANDLED
 
     def on_mouse_press(self,x,y,button,modifiers):
         pass
