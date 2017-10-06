@@ -233,6 +233,11 @@ class track:
         # self.plot()
         self.gen_track()
 
+        self.coins = []
+        for t in librosa.core.samples_to_time(self.beats):
+            if True:
+                self.coins.append(Shape.circle([t * self.xmul, self.get_h(t)],0.05))
+
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
         print('loaded ' + audio_path + ' duration: ' + str(self.duration) + ' tempo: ' + str(self.tempo) + ' #beats: ' + str(len(self.beats))
@@ -281,7 +286,8 @@ class track:
         glTranslatef(-self.time * self.xmul,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
         glColor4f(1,1,1,0)
         glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
-
+        for c in self.coins:
+            c.draw()
         glMatrixMode(GL_MODELVIEW)
         glPopMatrix()
         glMatrixMode(GL_PROJECTION)
@@ -300,10 +306,10 @@ class track:
                 self.ball_sp = 0.1
         self.ball_y -= self.ball_sp * t
         h = self.get_h(self.time)
-        if self.ball_y <= h or self.ball_st == track.Jump.floor:
+        if self.ball_y - self.ball.radius <= h or self.ball_st == track.Jump.floor:
             self.ball_st = track.Jump.floor
             self.slide = track.Slide.no
-            self.ball_y = h
+            self.ball_y = h + self.ball.radius
             self.ball_sp = 0
 
     def handle_keypress(self, symbol):
