@@ -11,6 +11,8 @@ import numpy as np
 import scipy
 from pyglet2d import Shape
 import random
+import math
+from bisect import bisect_left
 
 point_penalty = 5
 point_reward = 1
@@ -21,7 +23,7 @@ slide_ball_speed = 0.1
 ball_accel = 20
 jump_speed = 7
 drop_speed = 5.2
-beat_coin_delay = 0.02
+beat_coin_delay = 0.0
 beat_bomb_delay = 0.1
 verbose_fs = 12
 info_fs = 14
@@ -108,7 +110,7 @@ class track:
 
     def __init__(self, g):
         self.g = g
-        self.loaded = False
+        self.loaded = ''
 
     def update_score(self):
         self.score = pyglet.text.Label('Score: %i' % self.points,
@@ -119,23 +121,25 @@ class track:
                 anchor_x='center',
                 anchor_y='center')
 
-    def load(self):
-        try:
-            self.player.pause()
-            self.player.seek(0)
-        except:
-            pass
+    def load(self, audio_path):
+        print_loading(self.g.window)
 
-        if self.loaded:
+        self.slide_time = 0
+        self.time = 0
+        self.ball_y = 2
+        self.ball = Shape.circle([0,self.ball_y],0.1)
+        self.ball_sp = 0
+        self.ball_st = track.Jump.double
+        self.slide = track.Slide.no
+        self.points = 0
+
+        if self.loaded == audio_path:
             for c in self.coins:
                 c.enable(True)
             for b in self.bombs:
                 b.enable(True)
             return
 
-        print_loading(self.g.window)
-        self.points = 0
-        audio_path = librosa.util.example_audio_file()
         random.seed(audio_path)
         # y is the waveform
         # we have it for harmonics, percussions
@@ -145,13 +149,6 @@ class track:
         self.margin_l = 1.5
         self.margin_r = 0.0
         self.xmul = 5
-        self.ball_y = 2
-        self.ball = Shape.circle([0,self.ball_y],0.1)
-        self.ball_sp = 0
-        self.ball_st = track.Jump.double
-        self.slide = track.Slide.no
-        self.slide_time = 0
-        self.time = 0
 
         self.y, self.sr = librosa.load(audio_path)
         self.hop_length = 512
@@ -159,7 +156,12 @@ class track:
         self.y_harmonic, self.y_percussive = librosa.effects.hpss(y=self.y,margin=16.0)
         self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='samples', hop_length=self.hop_length)
         self.sound = pyglet.media.load(audio_path)
+        try:
+            self.player.delete()
+        except:
+            pass
         self.player = pyglet.media.Player()
+        self.player.eos_action = pyglet.media.Player.EOS_PAUSE
         self.player.queue(self.sound)
         self.gen_track()
         self.update_score()
@@ -176,7 +178,7 @@ class track:
 
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
-        self.loaded = True
+        self.loaded = audio_path
 
     def play(self):
         self.time = -1
@@ -201,8 +203,10 @@ class track:
         return max(0, min( self.vertices[itime] / 10, 1 ) )
 
     def get_h(self,time):
-        itime = int(time / self.duration * len(self.vertices_gl)//2) * 2 + 1
-        return self.vertices_gl[max(0,min(len(self.vertices_gl)-1,itime))]
+        # ez nem jo. feltetelezi, hogy a self.vertices_gl az x-en egyenloen van elosztva, de ez nincs igy
+        # a paros indexuek az x ertekek (time), ebbol kell megtalalni, hogy hova illene a rendezett vertices_glbe, es azt az indexet visszaadni
+        x1 = bisect_left(self.vertices_gl[::2],time*self.xmul)
+        return self.vertices_gl[max(min(len(self.vertices_gl)-1,2 * x1 + 1),0)]
 
     # ezt okosabban is lehetne, tudjuk, hogy melyk beatek jatszhatnak egyaltalan minden egyes idopontban
     def is_visible(self, circle):
@@ -236,6 +240,7 @@ class track:
         for c in self.bombs:
             if self.is_visible(c):
                 c.draw()
+
         glMatrixMode(GL_MODELVIEW)
         glPopMatrix()
         glMatrixMode(GL_PROJECTION)
@@ -587,7 +592,9 @@ class game:
         self.newhighscore = False
         self.newrecord = False
         self.state = game.State.ingame
-        self.track.load()
+        audio_path = librosa.util.example_audio_file()
+        # audio_path = '/home/w12x/.local/share/Steam/steamapps/common/SOMA/music/01_03/01_03_intro.ogg'
+        self.track.load(audio_path)
         self.track.play()
 
 def main():
