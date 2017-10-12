@@ -70,7 +70,7 @@ class track:
 
     def is_supported_file(filename):
         _, ext = os.path.splitext(filename)
-        return ext.lower() in ['mp3', 'ogg', 'wav']
+        return ext.lower() in ['.mp3', '.ogg', '.wav']
 
     def gen_track(self):
         '''
@@ -447,7 +447,8 @@ class menu:
 
     def start_game(self):
         print('starting game!')
-        self.g.start()
+        # self.g.start()
+        self.g.state = game.State.filebrowser
 
     def show_highscores(self):
         print('showing highscores!')
@@ -469,8 +470,7 @@ class menu:
         return self.g.window.height/2/len(self.entries)
 
     def update_labels(self):
-        for i in range(0, len(self.entries)):
-            text = self.entries[i]
+        for i, text in enumerate(self.entries):
             lh = self.label_height()
 
             dy = (i - self.active) * lh
@@ -549,12 +549,97 @@ class gameover:
             self.high.draw()
         pass
 
+class filebrowser:
+    def __init__(self, g):
+        self.g = g
+        self.current_path = os.path.dirname(os.path.realpath(librosa.util.example_audio_file()))
+        self.entries = []
+        self.labels = []
+        self.active = 0
+        self.title = pyglet.text.Label('Browse',
+                font_name='Times New Roman',
+                font_size=important_fs,
+                x=self.g.window.width/2,
+                y=self.g.window.height - 3 * important_fs,
+                anchor_x='center',
+                anchor_y='center')
+
+        self.enter(self.current_path)
+
+    def draw(self):
+        self.title.draw()
+        for x in self.labels:
+            x.draw()
+
+    def move_focus(self, direction):
+        self.active += direction
+        if self.active < 0:
+            self.active = len(self.entries) - 1
+        if self.active >=len(self.entries):
+            self.active = 0
+        print('active entry: ' + str(self.active))
+        self.update_labels()
+
+    def label_height(self):
+        return self.g.window.height/2/len(self.entries)
+
+    def update_labels(self):
+        dy = 5 * important_fs
+        self.labels.clear()
+        for i, text in enumerate(self.entries):
+            lh = info_fs
+            dy = (i - self.active) * lh * 1.2
+            alpha = max(0, 5 - abs(i - self.active)) * (255 // 5)
+            fs = lh
+            if i != self.active:
+                fs *= 0.8
+
+            self.labels.append(pyglet.text.Label(str(text),
+                font_name='Times New Roman',
+                font_size=fs,
+                x=self.g.window.width/2,
+                y=self.g.window.height/2 - dy,
+                anchor_x='center',
+                anchor_y='center',
+                color=[255,255,255,alpha]))
+
+    def handle_keypress(self, symbol):
+        if symbol == key.DOWN:
+            self.move_focus(1)
+        elif symbol == key.UP:
+            self.move_focus(-1)
+        elif symbol == key.RETURN:
+            if self.active == 0:
+                self.enter(os.path.dirname(self.current_path))
+            else:
+                self.enter(os.path.join(self.current_path,self.entries[self.active]))
+
+    def enter(self, p):
+        p = os.path.realpath(p)
+        if os.path.isfile(p):
+            print("%s is file" % p)
+            # load!
+            self.g.start(p)
+            return
+        self.current_path = p
+        self.entries = ['Up one directory']
+        self.labels = []
+        self.active = 0
+        for i in os.listdir(p):
+            pp = os.path.join(p,i)
+            print("found %s" % pp)
+            if os.path.isfile(pp) and track.is_supported_file(pp) or os.path.isdir(pp):
+                print("appended %s" % i)
+                self.entries.append(i)
+        self.update_labels()
+
 class game:
     class State(Enum):
         menu = 1
         ingame = 2
         gameover = 3
         highscores = 4
+        filebrowser = 5
 
     def __init__(self):
         config = pyglet.gl.Config(double_buffer=True, sample_buffers=1, samples=4)
@@ -569,6 +654,7 @@ class game:
         self.track = track(self)
         self.highscores = highscores(self)
         self.gameover = gameover(self)
+        self.filebrowser = filebrowser(self)
         @self.window.event
         def on_draw():
             return self.on_draw()
@@ -596,6 +682,8 @@ class game:
             self.menu.draw()
         elif self.state == game.State.highscores:
             self.highscores.draw()
+        elif self.state == game.State.filebrowser:
+            self.filebrowser.draw()
         elif self.state == game.State.gameover:
             self.gameover.draw()
         elif self.state == game.State.ingame:
@@ -619,6 +707,8 @@ class game:
         print('key pressed: ' + str(symbol))
         if self.state == game.State.menu:
             self.menu.handle_keypress(symbol)
+        elif self.state == game.State.filebrowser:
+            self.filebrowser.handle_keypress(symbol)
         elif self.state == game.State.ingame:
             self.track.handle_keypress(symbol)
 
@@ -646,12 +736,10 @@ class game:
     def run(self):
         pyglet.app.run()
 
-    def start(self):
+    def start(self,audio_path):
         self.newhighscore = False
         self.newrecord = False
         self.state = game.State.ingame
-        audio_path = librosa.util.example_audio_file()
-        # audio_path = '/home/w12x/.local/share/Steam/steamapps/common/SOMA/music/01_03/01_03_intro.ogg'
         self.track.load(audio_path)
         self.track.play()
 
