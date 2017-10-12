@@ -121,6 +121,22 @@ class track:
                 anchor_x='center',
                 anchor_y='center')
 
+    def force_stop_music(self):
+        try:
+            self.player.stop()
+        except:
+            pass
+        try:
+            self.player.clear()
+        except:
+            pass
+        try:
+            self.player.delete()
+        except:
+            pass
+        self.player = pyglet.media.Player()
+
+
     def load(self, audio_path):
         print_loading(self.g.window)
 
@@ -134,6 +150,12 @@ class track:
         self.points = 0
 
         if self.loaded == audio_path:
+            try:
+                self.sound = pyglet.media.load(audio_path)
+                self.force_stop_music()
+                self.player.queue(self.sound)
+            except:
+                pass
             for c in self.coins:
                 c.enable(True)
             for b in self.bombs:
@@ -186,10 +208,7 @@ class track:
         # az update fogja a valosagban elinditani
 
     def end(self):
-        try:
-            self.player.pause()
-        except:
-            pass
+        self.force_stop_music()
         self.g.end_game(self.points)
         self.points = 0
         self.time = -1
@@ -547,6 +566,7 @@ class game:
         self.fps_display.draw()
 
     def end_game(self, score):
+        self.track.force_stop_music()
         if score >= 0:
             self.gameover.over(score)
         self.state = game.State.gameover
