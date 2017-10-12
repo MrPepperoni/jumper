@@ -13,17 +13,19 @@ from pyglet2d import Shape
 import random
 import math
 from bisect import bisect_left
+import os
 
 point_penalty = 5
 point_reward = 1
 bomb_size = 0.3
 coin_size = 0.05
+marker_size = 0.03
 slide_time_max = 0.8
 slide_ball_speed = 0.1
 ball_accel = 20
 jump_speed = 7
 drop_speed = 5.2
-beat_coin_delay = 0.0
+beat_coin_delay = 0.001
 beat_bomb_delay = 0.1
 verbose_fs = 12
 info_fs = 14
@@ -65,6 +67,10 @@ class track:
         no = 1
         during = 2
         done = 3
+
+    def is_supported_file(filename):
+        _, ext = os.path.splitext(filename)
+        return ext.lower() in ['mp3', 'ogg', 'wav']
 
     def gen_track(self):
         '''
@@ -156,9 +162,9 @@ class track:
                 self.player.queue(self.sound)
             except:
                 pass
-            for c in self.coins:
+            for _, c in pairs(self.coins):
                 c.enable(True)
-            for b in self.bombs:
+            for _, b in pairs(self.bombs):
                 b.enable(True)
             return
 
@@ -187,17 +193,33 @@ class track:
         self.player.queue(self.sound)
         self.gen_track()
         self.update_score()
-        self.coins = []
-        self.bombs = []
+        self.coins = {}
+        self.bombs = {}
+        self.beat_markers = {}
+        prevcoin = False
         for time in librosa.core.samples_to_time(self.beats):
             roll = random.randint(0,6)
             if roll > 2:
                 t = time + beat_coin_delay
-                self.coins.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.3,1.2)],coin_size))
+                rpart = random.uniform(0.3,1.2) 
+                h1 = self.get_h(t)
+                h = rpart
+                if prevcoin and random.randint(0,2) == 0:
+                    h += rpart * 0.8
+                    prevcoin = False
+                else:
+                    prevcoin = True
+                # extra delay based on rpart
+                x = t * self.xmul + rpart
+                h2 = self.get_h(t + rpart / self.xmul)
+                self.coins[x] = Shape.circle([x, max(h1,h2) + h],coin_size)
             elif roll > 0:
                 t = time + beat_bomb_delay
-                self.bombs.append(Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(0.5,1.5)],bomb_size,color=[128,0,0]))
-
+                self.bombs[t * self.xmul] = Shape.circle([t * self.xmul, self.get_h(t) + random.uniform(bomb_size,1.3)],bomb_size,color=[128,0,0])
+                prevcoin = False
+            else:
+                prevcoin = False
+            self.beat_markers[time * self.xmul] = Shape.circle([time * self.xmul, self.get_h(time)],marker_size,color=[0,0,255])
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
         self.loaded = audio_path
@@ -227,9 +249,21 @@ class track:
         x1 = bisect_left(self.vertices_gl[::2],time*self.xmul)
         return self.vertices_gl[max(min(len(self.vertices_gl)-1,2 * x1 + 1),0)]
 
-    # ezt okosabban is lehetne, tudjuk, hogy melyk beatek jatszhatnak egyaltalan minden egyes idopontban
     def is_visible(self, circle):
         return circle.enabled and circle.center[0] + circle.radius >= self.time * self.xmul - self.margin_l and circle.center[0] - circle.radius < self.time * self.xmul + self.window_length + self.margin_r
+
+    def visible(self, coins):
+        x = self.time * self.xmul
+        size = max(coin_size, bomb_size, marker_size)
+        x0 = x - self.margin_l - size
+        x1 = x + self.margin_r + self.window_length + size
+        keys = list(coins.keys())
+        idx0 = max(0,bisect_left(keys,x0) - 1)
+        idx1 = min(max(0,bisect_left(keys,x1,idx0) + 1),len(keys)-1)
+        filt = keys[idx0:idx1]
+
+        return [coins[x] for x in filt]
+
 
     def draw(self):
         glClear(GL_COLOR_BUFFER_BIT)
@@ -246,19 +280,23 @@ class track:
 
         col = self.get_amp(self.time)
 
-        glTranslatef(-self.time * self.xmul,0,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
+        glTranslatef(-self.time * self.xmul, -w * scale / 15,0)    # self.time a teljes palya hossza, szoval a time vegere 0n kene lennunk ( kell meg egy margo )
         self.ball.draw()
         glColor4f(1,1,1,0)
         glLineWidth(track_line_width)
         glEnable(GL_LINE_SMOOTH);
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
         glDrawArrays(GL_LINE_STRIP, 0, len(self.vertices) // 2)
-        for c in self.coins:
+        for c in self.visible(self.coins):
             if self.is_visible(c):
                 c.draw()
-        for c in self.bombs:
+        for c in self.visible(self.bombs):
             if self.is_visible(c):
                 c.draw()
+        #for c in self.visible(self.beat_markers):
+        #    if self.is_visible(c):
+        #        c.draw()
+
 
         glMatrixMode(GL_MODELVIEW)
         glPopMatrix()
@@ -293,13 +331,13 @@ class track:
 
         opoints = self.points
 
-        for c in self.coins:
+        for c in self.visible(self.coins):
             if self.is_visible(c):
                 if self.ball.overlaps(c):
                     c.enable(False)
                     self.points += point_reward
 
-        for c in self.bombs:
+        for c in self.visible(self.bombs):
             if self.is_visible(c):
                 if self.ball.overlaps(c):
                     c.enable(False)
