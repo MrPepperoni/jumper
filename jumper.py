@@ -162,9 +162,9 @@ class track:
                 self.player.queue(self.sound)
             except:
                 pass
-            for _, c in pairs(self.coins):
+            for _, c in self.coins.items():
                 c.enable(True)
-            for _, b in pairs(self.bombs):
+            for _, b in self.bombs.items():
                 b.enable(True)
             return
 
@@ -655,6 +655,7 @@ class game:
         self.highscores = highscores(self)
         self.gameover = gameover(self)
         self.filebrowser = filebrowser(self)
+        pyglet.clock.set_fps_limit(60)
         @self.window.event
         def on_draw():
             return self.on_draw()
