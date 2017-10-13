@@ -142,57 +142,7 @@ class track:
             pass
         self.player = pyglet.media.Player()
 
-
-    def load(self, audio_path):
-        print_loading(self.g.window)
-
-        self.slide_time = 0
-        self.time = 0
-        self.ball_y = 2
-        self.ball = Shape.circle([0,self.ball_y],0.1)
-        self.ball_sp = 0
-        self.ball_st = track.Jump.double
-        self.slide = track.Slide.no
-        self.points = 0
-
-        if self.loaded == audio_path:
-            try:
-                self.sound = pyglet.media.load(audio_path)
-                self.force_stop_music()
-                self.player.queue(self.sound)
-            except:
-                pass
-            for _, c in self.coins.items():
-                c.enable(True)
-            for _, b in self.bombs.items():
-                b.enable(True)
-            return
-
-        random.seed(audio_path)
-        # y is the waveform
-        # we have it for harmonics, percussions
-        # beats contain the timestamps of detected beats (could get frames)
-        # should probably check the point plot
-        self.window_length = 5  # seconds
-        self.margin_l = 1.5
-        self.margin_r = 0.0
-        self.xmul = 5
-
-        self.y, self.sr = librosa.load(audio_path)
-        self.hop_length = 512
-        self.duration = librosa.core.get_duration(y=self.y, sr=self.sr, hop_length=self.hop_length)
-        self.y_harmonic, self.y_percussive = librosa.effects.hpss(y=self.y,margin=16.0)
-        self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='samples', hop_length=self.hop_length)
-        self.sound = pyglet.media.load(audio_path)
-        try:
-            self.player.delete()
-        except:
-            pass
-        self.player = pyglet.media.Player()
-        self.player.eos_action = pyglet.media.Player.EOS_PAUSE
-        self.player.queue(self.sound)
-        self.gen_track()
-        self.update_score()
+    def gen_objects(self):
         self.coins = {}
         self.bombs = {}
         self.beat_markers = {}
@@ -220,9 +170,63 @@ class track:
             else:
                 prevcoin = False
             self.beat_markers[time * self.xmul] = Shape.circle([time * self.xmul, self.get_h(time)],marker_size,color=[0,0,255])
+
+    def gen_librosa(self, audio_path):
+        self.y, self.sr = librosa.load(audio_path)
+        self.duration = librosa.core.get_duration(y=self.y, sr=self.sr, hop_length=self.hop_length)
+        self.y_harmonic, self.y_percussive = librosa.effects.hpss(y=self.y,margin=16.0)
+        self.tempo, self.beats = librosa.beat.beat_track(y=self.y, sr=self.sr, units='samples', hop_length=self.hop_length)
+
+    def setup_audio_playback(self, audio_path):
+        try:
+            self.sound = pyglet.media.load(audio_path)
+            self.force_stop_music()
+            self.player.queue(self.sound)
+        except:
+            pass
+
+
+    def load(self, audio_path):
+        print_loading(self.g.window)
+
+        self.slide_time = 0
+        self.time = 0
+        self.ball_y = 2
+        self.ball = Shape.circle([0,self.ball_y],0.1)
+        self.ball_sp = 0
+        self.ball_st = track.Jump.double
+        self.slide = track.Slide.no
+        self.points = 0
+
+        self.setup_audio_playback(audio_path)
+        if self.loaded == audio_path:
+            for _, c in self.coins.items():
+                c.enable(True)
+            for _, b in self.bombs.items():
+                b.enable(True)
+            return
+
+        random.seed(audio_path)
+        # y is the waveform
+        # we have it for harmonics, percussions
+        # beats contain the timestamps of detected beats (could get frames)
+        # should probably check the point plot
+        self.window_length = 5  # seconds
+        self.margin_l = 1.5
+        self.margin_r = 0.0
+        self.xmul = 5
+        self.hop_length = 512
+
+        self.gen_librosa(audio_path)    # extract features, slow, should be cached!
+        self.gen_track()                # generate track based on features
+        self.gen_objects()              # generate objects based on features and track
+        self.update_score()
+
+        self.loaded = audio_path
+
+
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointer(2, GL_FLOAT, 0, self.vertices_gl)
-        self.loaded = audio_path
 
     def play(self):
         self.time = -1
@@ -539,7 +543,12 @@ class gameover:
 
     def over(self,score):
         self.score = score
-        self.newhighscore, self.newrecord = self.g.highscores.add(score)
+        if score >= 0:
+            self.newhighscore, self.newrecord = self.g.highscores.add(score)
+        else:
+            self.score = 0
+            self.newhighscore = False
+            self.newrecord = False
 
     def draw(self):
         self.title.draw()
@@ -694,8 +703,7 @@ class game:
 
     def end_game(self, score):
         self.track.force_stop_music()
-        if score >= 0:
-            self.gameover.over(score)
+        self.gameover.over(score)
         self.state = game.State.gameover
 
     def on_key_release(self,symbol,modifiers):
